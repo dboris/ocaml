@@ -158,10 +158,26 @@ struct custom_operations * caml_final_custom_operations(final_fun fn)
   return ops;
 }
 
+/* Registering the bigarray operations here is what makes an unmarshalled
+   bigarray find them again, but it is also a hard reference from the core
+   runtime to bigarray.c, which then lands in every executable whether or
+   not it has a bigarray in it -- 7 KB that an embedded target would rather
+   spend elsewhere.  A *weak* undefined reference does not make the linker
+   extract an archive member, so the module is pulled in only when the
+   program itself uses one of the caml_ba_ functions, which is exactly when
+   the registration has something to do.  Where weak symbols are not
+   available nothing changes. */
+#ifdef __GNUC__
+extern struct custom_operations caml_ba_ops __attribute__((weak));
+#define Ba_ops_linked (&caml_ba_ops != NULL)
+#else
+#define Ba_ops_linked 1
+#endif
+
 void caml_init_custom_operations(void)
 {
   caml_register_custom_operations(&caml_int32_ops);
   caml_register_custom_operations(&caml_nativeint_ops);
   caml_register_custom_operations(&caml_int64_ops);
-  caml_register_custom_operations(&caml_ba_ops);
+  if (Ba_ops_linked) caml_register_custom_operations(&caml_ba_ops);
 }
