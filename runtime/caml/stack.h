@@ -123,8 +123,25 @@ typedef struct {
 extern frame_descr ** caml_frame_descriptors;
 extern uintnat caml_frame_descriptors_mask;
 
+/* Number of low bits of a return address that carry no information and
+   are dropped before hashing.  Targets whose instructions are all four
+   bytes or more can afford to drop three; Xtensa cannot, since its
+   instructions are 16 or 24 bits wide and return addresses are packed at
+   byte granularity.  Dropping three there maps eight neighbouring call
+   sites onto one bucket, and the clustering is severe enough to matter:
+   over the 2949 descriptors of a Printf/Hashtbl program it triples the
+   average probe against a well-spread hash and pushes the worst chain
+   past a hundred. */
+#ifndef Hash_retaddr_shift
+#ifdef TARGET_xtensa
+#define Hash_retaddr_shift 0
+#else
+#define Hash_retaddr_shift 3
+#endif
+#endif
+
 #define Hash_retaddr(addr) \
-  (((uintnat)(addr) >> 3) & caml_frame_descriptors_mask)
+  (((uintnat)(addr) >> Hash_retaddr_shift) & caml_frame_descriptors_mask)
 
 extern void caml_init_frame_descriptors(void);
 extern void caml_register_frametable(intnat *);

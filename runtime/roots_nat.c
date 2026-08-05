@@ -133,7 +133,7 @@ static void init_frame_descriptors(link *new_frametables)
   tblsize = caml_frame_descriptors_mask + 1;
 
   /* Reallocate the caml_frame_descriptor table if it is too small */
-  if(tblsize < (num_descr + increase) * 2) {
+  if(tblsize * Frame_descriptors_max_load < (num_descr + increase) * 100) {
 
     /* Merge both lists */
     tail->next = frametables;
@@ -144,7 +144,7 @@ static void init_frame_descriptors(link *new_frametables)
     num_descr = count_descriptors(new_frametables);
 
     tblsize = 4;
-    while (tblsize < 2 * num_descr) tblsize *= 2;
+    while (tblsize * Frame_descriptors_max_load < num_descr * 100) tblsize *= 2;
 
     caml_frame_descriptors_mask = tblsize - 1;
     if(caml_frame_descriptors) caml_stat_free(caml_frame_descriptors);

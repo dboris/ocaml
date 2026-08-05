@@ -232,6 +232,18 @@ typedef uint64_t uintnat;
 #define Heap_chunk_min (15 * Page_size)
 #endif
 
+/* Highest load factor, in percent, of the frame descriptor hash table.
+   The table uses linear probing, and every lookup on the collection path
+   is for a return address that is present, so a tighter table costs only
+   a slightly longer average probe.  It must stay below 100: the lookup in
+   backtrace_nat.c may miss and relies on finding a free slot to stop.
+   Overridable: the table is sized from the amount of code linked in, and
+   the default leaves 32 KB of it on a 32-bit target for a program with a
+   few thousand descriptors, against the ~180 KB of RAM of an ESP32. */
+#ifndef Frame_descriptors_max_load
+#define Frame_descriptors_max_load 50
+#endif
+
 /* Default size increment when growing the heap.
    If this is <= 1000, it's a percentage of the current heap size.
    If it is > 1000, it's a number of words. */
