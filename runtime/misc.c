@@ -28,6 +28,7 @@ __declspec(noreturn) void __cdecl abort(void);
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <unistd.h>
 #include "caml/config.h"
 #include "caml/misc.h"
 #include "caml/memory.h"
@@ -69,10 +70,18 @@ void caml_gc_message (int level, char *msg, ...)
 {
   if ((caml_verb_gc & level) != 0){
     va_list ap;
+    char buf[256];
+    int len;
     va_start(ap, msg);
-    vfprintf (stderr, msg, ap);
+    /* Format into a buffer and write(2) it to fd 2 rather than using
+       [stderr]: when the runtime is embedded (e.g. in an ESP-IDF
+       firmware), the toolchain libc's FILE streams are never set up and
+       [vfprintf (stderr, ...)] output is silently lost, while the raw
+       descriptor reaches the console like every other runtime write. */
+    len = vsnprintf (buf, sizeof buf, msg, ap);
     va_end(ap);
-    fflush (stderr);
+    if (len > (int) sizeof buf - 1) len = (int) sizeof buf - 1;
+    if (len > 0) write (2, buf, len);
   }
 }
 
