@@ -27,9 +27,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <sys/ioctl.h>
 #include <fcntl.h>
 #include "caml/config.h"
+#ifdef HAS_SYS_IOCTL_H
+#include <sys/ioctl.h>
+#endif
 #if defined(SUPPORT_DYNAMIC_LINKING) && !defined(BUILDING_LIBCAMLRUNS)
 #define WITH_DYNAMIC_LINKING
 #ifdef __CYGWIN__

@@ -875,6 +875,12 @@ AC_CHECK_HEADER([dirent.h], [AC_DEFINE([HAS_DIRENT])], [],
 AC_CHECK_HEADER([sys/select.h], [AC_DEFINE([HAS_SYS_SELECT_H])], [],
   [#include <sys/types.h>])
 
+dnl Absent on bare-metal C libraries such as newlib.  Its only use in
+dnl unix.c is already guarded by TIOCGWINSZ, but the include itself has to
+dnl be conditional too.
+AC_CHECK_HEADER([sys/ioctl.h], [AC_DEFINE([HAS_SYS_IOCTL_H])], [],
+  [#include <sys/types.h>])
+
 # Checks for types
 
 ## off_t
@@ -1170,7 +1176,9 @@ AS_CASE([$host],
   [x86_64-*-cygwin*],
     [arch=amd64; system=cygwin],
   [riscv64-*-linux*],
-    [arch=riscv; model=riscv64; system=linux]
+    [arch=riscv; model=riscv64; system=linux],
+  [[xtensa*-*-elf*]],
+    [arch=xtensa; model=esp32; system=elf]
 )
 
 AS_IF([test x"$enable_native_compiler" = "xno"],
@@ -1265,6 +1273,12 @@ AS_CASE([$as_target,$ocaml_cv_cc_vendor],
     default_aspp="$default_as"],
   [*-*-darwin*,clang-*],
     [default_as="$default_as -Wno-trigraphs"
+    default_aspp="$default_as"],
+  dnl The Xtensa backend emits .literal directives inside .text, which the
+  dnl assembler only accepts with --text-section-literals, and call targets
+  dnl are routinely out of the range of the short call instructions.
+  [xtensa*-*-elf*,gcc-*],
+    [default_as="$default_as -mtext-section-literals -mlongcalls"
     default_aspp="$default_as"],
   [])
 

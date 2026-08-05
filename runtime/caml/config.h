@@ -172,10 +172,15 @@ typedef uint64_t uintnat;
 
 
 /* We use threaded code interpretation if the compiler provides labels
-   as first-class values (GCC 2.x). */
+   as first-class values (GCC 2.x).
+
+   CAML_NO_THREADED_CODE forces switch-based dispatch instead: threaded
+   code rewrites each opcode into a label address at startup, so it needs
+   the bytecode in writable memory, which rules it out when the bytecode
+   is executed directly from ROM (e.g. flash-resident MCU targets). */
 
 #if defined(__GNUC__) && __GNUC__ >= 2 && !defined(DEBUG) \
-    && !defined (SHRINKED_GNUC)
+    && !defined (SHRINKED_GNUC) && !defined(CAML_NO_THREADED_CODE)
 #define THREADED_CODE
 #endif
 
@@ -219,8 +224,13 @@ typedef uint64_t uintnat;
 
 
 /* Minimum size increment when growing the heap (words).
-   Must be a multiple of [Page_size / sizeof (value)]. */
+   Must be a multiple of [Page_size / sizeof (value)].
+   Overridable: 15 pages of words is 240 KB on a 32-bit target, which
+   exceeds the largest allocatable block on small embedded systems, so
+   caml_init_gc could not succeed at any requested heap size. */
+#ifndef Heap_chunk_min
 #define Heap_chunk_min (15 * Page_size)
+#endif
 
 /* Default size increment when growing the heap.
    If this is <= 1000, it's a percentage of the current heap size.

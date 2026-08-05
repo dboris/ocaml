@@ -75,6 +75,13 @@
 #define Callback_link(sp) ((struct caml_context *)((sp) + 16))
 #endif
 
+#ifdef TARGET_xtensa
+#define Saved_return_address(sp) *((intnat *)((sp) - 4))
+/* .Ljump_to_caml in xtensa.S reserves four words for the windowed call
+   and a0 before the callback link, so the context starts at sp + 16. */
+#define Callback_link(sp) ((struct caml_context *)((sp) + 16))
+#endif
+
 /* Structure of OCaml callback contexts */
 
 struct caml_context {

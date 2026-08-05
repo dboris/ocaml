@@ -151,6 +151,10 @@
 /* Define HAS_SYS_SELECT_H if /usr/include/sys/select.h exists
    and should be included before using select(). */
 
+#undef HAS_SYS_IOCTL_H
+
+/* Define HAS_SYS_IOCTL_H if /usr/include/sys/ioctl.h exists. */
+
 #undef HAS_NANOSLEEP
 /* Define HAS_NANOSLEEP if you have nanosleep(). */
 
