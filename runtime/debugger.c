@@ -49,6 +49,15 @@ CAMLexport void caml_debugger_cleanup_fork(void)
 {
 }
 
+/* Referenced by the interpreter's BREAK handler, which only runs once a
+   debugger has replaced an instruction with BREAK; that cannot happen
+   without a debugger connection, which requires sockets. */
+opcode_t caml_debugger_saved_instruction(code_t pc)
+{
+  CAMLassert(0);
+  return 0;
+}
+
 #else
 
 #ifdef HAS_UNISTD
