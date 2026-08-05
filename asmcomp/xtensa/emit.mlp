@@ -447,9 +447,9 @@ let emit_instruction i =
           | Sixteen_signed -> "s16", 2
           | _ (* 32-bit quantities *) -> "s32", 4 in
         `	{emit_string instr}{emit_addressing_mode addr}	{emit_reg r}, {emit_addressing align addr i.arg 1}\n`;
-    | Lop(Ialloc { bytes = n; _ }) ->
+    | Lop(Ialloc { bytes = n; dbginfo }) ->
         let lbl_frame =
-          record_frame_label i.live (Dbg_other i.dbg)
+          record_frame_label i.live (Dbg_alloc dbginfo)
         in
         begin match n with
           8 ->  `{emit_call_to_OCaml "caml_alloc1"}\n`

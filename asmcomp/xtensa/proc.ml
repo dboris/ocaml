@@ -211,8 +211,12 @@ let destroyed_at_oper = function
   | Iop(Icall_ind | Icall_imm _)
   | Iop(Iextcall { alloc = true; _}) -> all_phys_regs
   | Iop(Iextcall { alloc = false; _}) -> call4_destroyed
-  | Iop(Ialloc _) -> (* a11-a15 are destroyed.*)
+  | Iop(Ialloc { bytes = (8 | 12 | 16); _ }) ->
+    (* a11-a15 are destroyed by the caml_alloc{1,2,3} helpers. *)
     Array.of_list(List.map phys_reg [9; 10; 11; 12])
+  | Iop(Ialloc _) ->
+    (* caml_allocN additionally takes its size argument in a2. *)
+    Array.of_list(List.map phys_reg [0; 9; 10; 11; 12])
   | _ -> [||]
 
 let destroyed_at_raise = all_phys_regs
