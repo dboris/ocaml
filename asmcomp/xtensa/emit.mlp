@@ -662,16 +662,24 @@ let emit_item = function
   | Cskip n -> if n > 0 then `	.space	{emit_int n}\n`
   | Calign n -> `.align	{emit_int(Misc.log2 n)}\n`
 
-(* Read-only data is deliberately not separated out into .rodata (which
-   would let the linker keep it in flash rather than in scarce DRAM): that
-   needs Cmm to carry an access mode, so it is left to a later change.
-   Until then the static data range below must bracket .data, as upstream
-   does, since OCaml static data is not all immutable. *)
-let data l =
-  `	.data\n`;
+(* Immutable data goes to .rodata, which the ESP32 linker script leaves
+   mapped in flash instead of copying into the ~180 KB of DRAM; only the
+   module blocks, which the unit's entry code fills in, need to be
+   writable.  Each half is bracketed by its own pair of symbols, both of
+   which Cmm_helpers.data_segment_table registers (see Arch.rodata_section)
+   so that neither half loses its In_static_data classification. *)
+let data l access_mode =
+  begin match access_mode with
+  | Read_only -> `	.section	.rodata\n`
+  | Read_write -> `	.data\n`
+  end;
   List.iter emit_item l
 
 let begin_assembly() =
+  let lbl_begin = Compilenv.make_symbol (Some "rodata_begin") in
+  `	.section	.rodata\n`;
+  `.globl	{emit_symbol lbl_begin}\n`;
+  `{emit_symbol lbl_begin}:\n`;
   let lbl_begin = Compilenv.make_symbol (Some "data_begin") in
   `	.data\n`;
   `.globl	{emit_symbol lbl_begin}\n`;
@@ -691,6 +699,13 @@ let end_assembly () =
   `.globl	{emit_symbol lbl_end}\n`;
   `{emit_symbol lbl_end}:\n`;
   `	.long	0\n`;
+  let lbl_end = Compilenv.make_symbol (Some "rodata_end") in
+  `	.section	.rodata\n`;
+  `.globl	{emit_symbol lbl_end}\n`;
+  `{emit_symbol lbl_end}:\n`;
+  `	.long	0\n`;
+  (* The frame table is read-only too, and deliberately sits past
+     rodata_end: it is not made of OCaml values. *)
   let lbl = Compilenv.make_symbol (Some "frametable") in
   `.globl	{emit_symbol lbl}\n`;
   `.align	4\n`;

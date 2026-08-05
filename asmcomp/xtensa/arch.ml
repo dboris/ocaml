@@ -19,6 +19,12 @@ type specific_operation = unit
 
 type addressing_mode = Iindexed of int
 
+(* Whether the backend emits immutable static data into a separate
+   read-only section.  When it does, [Cmm_helpers.data_segment_table]
+   registers that section as a second static data segment per unit, so
+   that both halves are still classified [In_static_data]. *)
+let rodata_section = true
+
 let big_endian = false
 
 let size_addr = 4
