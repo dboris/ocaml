@@ -43,6 +43,12 @@ type addressing_mode =
 
 (* Sizes, endianness *)
 
+(* Whether the backend emits immutable static data into a separate
+   read-only section.  When it does, [Cmm_helpers.data_segment_table]
+   registers that section as a second static data segment per unit, so
+   that both halves are still classified [In_static_data]. *)
+let rodata_section = false
+
 let big_endian = true
 
 let size_addr = 8

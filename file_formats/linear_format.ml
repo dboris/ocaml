@@ -18,7 +18,7 @@
 (* Marshal and unmarshal a compilation unit in linear format *)
 type linear_item_info =
   | Func of Linear.fundecl
-  | Data of Cmm.data_item list
+  | Data of Cmm.data_item list * Cmm.access_mode
 
 type linear_unit_info =
   {

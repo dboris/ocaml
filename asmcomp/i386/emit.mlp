@@ -940,7 +940,9 @@ let emit_item = function
   | Cskip n -> if n > 0 then D.space n
   | Calign n -> D.align n
 
-let data l =
+(* [access_mode] is ignored: this backend emits all static data into the
+   writable data section, which [begin_assembly] brackets. *)
+let data l _access_mode =
   D.data ();
   List.iter emit_item l
 

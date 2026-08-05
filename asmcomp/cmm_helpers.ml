@@ -2617,15 +2617,15 @@ let global_table namelist =
   Cdata(Cglobal_symbol "caml_globals" ::
         Cdefine_symbol "caml_globals" ::
         List.map mksym namelist @
-        [cint_zero])
+        [cint_zero], Read_only)
 
 let reference_symbols namelist =
   let mksym name = Csymbol_address name in
-  Cdata(List.map mksym namelist)
+  Cdata(List.map mksym namelist, Read_only)
 
 let global_data name v =
   Cdata(emit_string_constant (name, Global)
-          (Marshal.to_string v []) [])
+          (Marshal.to_string v []) [], Read_only)
 
 let globals_map v = global_data "caml_globals_map" v
 
@@ -2638,25 +2638,36 @@ let frame_table namelist =
   Cdata(Cglobal_symbol "caml_frametable" ::
         Cdefine_symbol "caml_frametable" ::
         List.map mksym namelist
-        @ [cint_zero])
+        @ [cint_zero], Read_only)
 
 (* Generate the table of module data and code segments *)
 
-let segment_table namelist symbol begname endname =
+let segment_table namelist symbol bounds =
   let addsyms name lst =
-    Csymbol_address (Compilenv.make_symbol ~unitname:name (Some begname)) ::
-    Csymbol_address (Compilenv.make_symbol ~unitname:name (Some endname)) ::
-    lst
+    List.fold_right
+      (fun (begname, endname) lst ->
+        Csymbol_address (Compilenv.make_symbol ~unitname:name (Some begname)) ::
+        Csymbol_address (Compilenv.make_symbol ~unitname:name (Some endname)) ::
+        lst)
+      bounds lst
   in
   Cdata(Cglobal_symbol symbol ::
         Cdefine_symbol symbol ::
-        List.fold_right addsyms namelist [cint_zero])
+        List.fold_right addsyms namelist [cint_zero], Read_only)
 
 let data_segment_table namelist =
-  segment_table namelist "caml_data_segments" "data_begin" "data_end"
+  (* A backend that gives immutable data a section of its own contributes
+     two disjoint ranges per unit rather than one, and both have to be
+     registered: [Is_in_value_area] gates comparison, hashing and
+     marshalling of the constants that live in the read-only one. *)
+  let bounds =
+    ("data_begin", "data_end")
+    :: (if Arch.rodata_section then [("rodata_begin", "rodata_end")] else [])
+  in
+  segment_table namelist "caml_data_segments" bounds
 
 let code_segment_table namelist =
-  segment_table namelist "caml_code_segments" "code_begin" "code_end"
+  segment_table namelist "caml_code_segments" [("code_begin", "code_end")]
 
 (* Initialize a predefined exception *)
 
@@ -2676,7 +2687,7 @@ let predef_exception i name =
   let data_items =
     emit_block (exn_sym, Global) (block_header tag size) fields
   in
-  Cdata data_items
+  Cdata (data_items, Read_only)
 
 (* Header for a plugin *)
 
@@ -2768,7 +2779,7 @@ let emit_gc_roots_table ~symbols cont =
   Cdata(Cglobal_symbol table_symbol ::
         Cdefine_symbol table_symbol ::
         List.map (fun s -> Csymbol_address s) symbols @
-        [Cint 0n])
+        [Cint 0n], Read_only)
   :: cont
 
 (* Build preallocated blocks (used for Flambda [Initialize_symbol]
@@ -2795,7 +2806,7 @@ let preallocate_block cont { Clambda.symbol; exported; tag; fields } =
   let data =
     emit_block symb (block_header tag (List.length fields)) space
   in
-  Cdata data :: cont
+  Cdata (data, Read_write) :: cont
 
 let emit_preallocated_blocks preallocated_blocks cont =
   let symbols =

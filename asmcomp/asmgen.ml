@@ -71,9 +71,10 @@ let reset () =
     linear_unit_info.for_pack <- !Clflags.for_package;
   end
 
-let save_data dl =
+let save_data dl access_mode =
   if should_save_before_emit () then begin
-    linear_unit_info.items <- Linear_format.(Data dl) :: linear_unit_info.items
+    linear_unit_info.items <-
+      Linear_format.(Data (dl, access_mode)) :: linear_unit_info.items
   end;
   dl
 
@@ -96,7 +97,8 @@ let should_emit () =
 let if_emit_do f x = if should_emit () then f x else ()
 let emit_begin_assembly = if_emit_do Emit.begin_assembly
 let emit_end_assembly = if_emit_do Emit.end_assembly
-let emit_data = if_emit_do Emit.data
+let emit_data dl access_mode =
+  if should_emit () then Emit.data dl access_mode
 let emit_fundecl fd =
   if should_emit() then begin
     try
@@ -166,10 +168,8 @@ let compile_fundecl ~ppf_dump ~funcnames fd_cmm =
 
 module String = Misc.Stdlib.String
 
-let compile_data dl =
-  dl
-  ++ save_data
-  ++ emit_data
+let compile_data dl access_mode =
+  emit_data (save_data dl access_mode) access_mode
 
 let compile_phrases ~ppf_dump ps =
   let funcnames =
@@ -188,8 +188,8 @@ let compile_phrases ~ppf_dump ps =
        | Cfunction fd ->
           compile_fundecl ~ppf_dump ~funcnames fd;
           compile ~funcnames:(String.Set.remove fd.fun_name funcnames) ps
-       | Cdata dl ->
-          compile_data dl;
+       | Cdata (dl, access_mode) ->
+          compile_data dl access_mode;
           compile ~funcnames ps
   in
   compile ~funcnames ps
@@ -288,7 +288,7 @@ let linear_gen_implementation filename =
    | Some expected, Some saved when String.equal expected saved -> ()
    | _, saved -> raise(Error(Mismatched_for_pack saved)));
   let emit_item = function
-    | Data dl -> emit_data dl
+    | Data (dl, access_mode) -> emit_data dl access_mode
     | Func f -> emit_fundecl f
   in
   start_from_emit := true;

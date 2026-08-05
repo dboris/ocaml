@@ -717,7 +717,9 @@ let emit_item = function
       if n < 8 then `	.align	8\n`
                else `	.align	{emit_int n}\n`
 
-let data l =
+(* [access_mode] is ignored: this backend emits all static data into the
+   writable data section, which [begin_assembly] brackets. *)
+let data l _access_mode =
   emit_string data_space;
   `	.align	8\n`;
   List.iter emit_item l

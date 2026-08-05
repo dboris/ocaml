@@ -221,9 +221,14 @@ type data_item =
   | Cskip of int
   | Calign of int
 
+type access_mode =
+    Read_only                     (* immutable: may live in a read-only
+                                     section, e.g. flash on an MCU *)
+  | Read_write                    (* written after load: module blocks *)
+
 type phrase =
     Cfunction of fundecl
-  | Cdata of data_item list
+  | Cdata of data_item list * access_mode
 
 let ccatch (i, ids, e1, e2, dbg) =
   Ccatch(Nonrecursive, [i, ids, e2, dbg], e1)

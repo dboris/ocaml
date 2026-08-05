@@ -612,7 +612,9 @@ let emit_item = function
   | Calign n ->
       `	.align	{emit_int (Misc.log2 n)}\n`
 
-let data l =
+(* [access_mode] is ignored: this backend emits all static data into the
+   writable data section, which [begin_assembly] brackets. *)
+let data l _access_mode =
   `	{emit_string data_space}\n`;
   List.iter emit_item l
 
