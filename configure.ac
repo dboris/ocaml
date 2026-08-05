@@ -1181,6 +1181,13 @@ AS_CASE([$host],
     [arch=xtensa; model=esp32; system=elf]
 )
 
+dnl Code on an ESP32 is spread between IRAM and memory-mapped flash, so
+dnl calls routinely exceed the range of the call8 instruction and the link
+dnl fails with "dangerous relocation: call8: call target out of range".
+dnl The assembler is given the same flag where ASM and ASPP are set below.
+AS_IF([test x"$arch" = "xxtensa"],
+  [common_cflags="$common_cflags -mlongcalls"])
+
 AS_IF([test x"$enable_native_compiler" = "xno"],
   [native_compiler=false
   AC_MSG_NOTICE([the native compiler is disabled])],

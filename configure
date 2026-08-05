@@ -14446,6 +14446,10 @@ fi; system=elf ;; #(
      ;;
 esac
 
+if test x"$arch" = "xxtensa"; then :
+  common_cflags="$common_cflags -mlongcalls"
+fi
+
 if test x"$enable_native_compiler" = "xno"; then :
   native_compiler=false
   { $as_echo "$as_me:${as_lineno-$LINENO}: the native compiler is disabled" >&5
