@@ -1193,6 +1193,13 @@ AS_IF([$natdynlink], [cmxs="cmxs"], [cmxs="cmx"])
 AC_DEFINE_UNQUOTED([OCAML_OS_TYPE], ["$ostype"])
 
 AC_CHECK_TOOL([DIRECT_LD],[ld])
+dnl The generic xtensa-*-elf ld is configured for a big-endian core: it
+dnl refuses the little-endian objects the compiler emits and rejects -EL
+dnl as not matching its Xtensa configuration.  Only the chip-specific
+dnl driver knows the core configuration, so reach ld through $CC.  Without
+dnl this, ocamlopt -output-obj and -pack fail at the partial link.
+AS_IF([test -z "$PARTIALLD" && test x"$arch" = "xxtensa"],
+  [PARTIALLD="$CC -nostdlib -Wl,-r"])
 AS_IF([test -z "$PARTIALLD"],
   [AS_CASE(["$arch,$cc_basename,$system,$model"],
     [amd64,*gcc*,macosx,*], [PACKLD_FLAGS=' -arch x86_64'],

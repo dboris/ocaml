@@ -14561,6 +14561,9 @@ else
   DIRECT_LD="$ac_cv_prog_DIRECT_LD"
 fi
 
+if test -z "$PARTIALLD" && test x"$arch" = "xxtensa"; then :
+  PARTIALLD="$CC -nostdlib -Wl,-r"
+fi
 if test -z "$PARTIALLD"; then :
   case "$arch,$cc_basename,$system,$model" in #(
   amd64,*gcc*,macosx,*) :
