@@ -36,10 +36,16 @@ method! regs_for tyv =
                end
                )
 
-method is_immediate _ = false 
+(* Xtensa has no andi/ori/xori/subi, and the generic Iintop_imm path in
+   emit.mlp just suffixes the mnemonic with "i", so no integer operation
+   may take an immediate operand.  Overrides the default, which would
+   admit shift immediates. *)
+method! is_immediate _op _n = false
 
-method private iextcall (func, alloc) =
-  Iextcall { func; alloc; label_after = Cmm.new_label (); }
+method is_immediate_test _op _n = false
+
+method private iextcall func ty_res ty_args =
+  Iextcall { func; ty_res; ty_args; alloc = false; }
 
 method! select_operation op args dbg =
   match (op, args) with 
@@ -53,12 +59,18 @@ method! select_operation op args dbg =
  we must fall back to soft floating point. *)
 method select_operation_softfp op args dbg = 
   match (op, args) with 
-    | (Caddf, args) -> (self#iextcall("__adddf3", false), args)
-    | (Cmulf, args) -> (self#iextcall("__muldf3", false), args)
-    | (Cdivf, args) -> (self#iextcall("__divdf3", false), args)
-    | (Csubf, args) -> (self#iextcall("__subdf3", false), args)
-    | (Cfloatofint, args) -> (self#iextcall("__floatsidf", false), args)
-    | (Cintoffloat, args) -> (self#iextcall("__fixdfsi", false), args)
+    | (Caddf, args) ->
+        (self#iextcall "__adddf3" typ_float [XFloat;XFloat], args)
+    | (Cmulf, args) ->
+        (self#iextcall "__muldf3" typ_float [XFloat;XFloat], args)
+    | (Cdivf, args) ->
+        (self#iextcall "__divdf3" typ_float [XFloat;XFloat], args)
+    | (Csubf, args) ->
+        (self#iextcall "__subdf3" typ_float [XFloat;XFloat], args)
+    | (Cfloatofint, args) ->
+        (self#iextcall "__floatsidf" typ_float [XInt], args)
+    | (Cintoffloat, args) ->
+        (self#iextcall "__fixdfsi" typ_int [XFloat], args)
     | (Ccmpf comp, args) ->
         let fn, comp = match comp with 
           | CFeq -> "__eqdf2", Ceq
@@ -73,13 +85,14 @@ method select_operation_softfp op args dbg =
           | CFnge -> "__gedf2", Clt
         in
         (Iintop_imm(Icomp(Isigned comp), 0),
-        [Cop(Cextcall(fn, typ_int, false, None), args, dbg)])
+        [Cop(Cextcall(fn, typ_int, [XFloat;XFloat], false), args, dbg)])
     | (Cload (Single, mut), args) ->
-      (self#iextcall("__extendsfdf2", false),
+      (self#iextcall "__extendsfdf2" typ_float [XInt],
         [Cop(Cload (Word_int, mut), args, dbg)])
     | (Cstore (Single, init), [arg1; arg2]) ->
       let arg2' =
-        Cop(Cextcall("__truncdfsf2", typ_int, false, None), [arg2], dbg) in
+        Cop(Cextcall("__truncdfsf2", typ_int, [XFloat], false),
+            [arg2], dbg) in
       self#select_operation (Cstore (Word_int, init)) [arg1; arg2'] dbg
     | _ -> super#select_operation op args dbg
 
@@ -106,4 +119,5 @@ method select_addressing chunk = function
 
 end 
 
-let fundecl f = (new selector)#emit_fundecl f 
+let fundecl ~future_funcnames f =
+  (new selector)#emit_fundecl ~future_funcnames f 

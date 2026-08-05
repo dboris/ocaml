@@ -106,17 +106,17 @@ let slot_offset loc _cl =
   | Outgoing n ->
       assert (n >= 0);
       n
-  in 
+  | Domainstate _ ->
+      (* Proc.calling_conventions never allocates arguments in the domain
+         state area on this target. *)
+      Misc.fatal_error "Emit.slot_offset: not a stack slot"
+  in
   res
 
 
 (* Record live pointers at call points *)
-let record_frame_label ?label live dbg =
-  let lbl =
-    match label with
-    | None -> new_label ()
-    | Some label -> label
-  in
+let record_frame_label live dbg =
+  let lbl = new_label () in
   let live_offset = ref [] in
   Reg.Set.iter
     (function
@@ -134,8 +134,8 @@ let record_frame_label ?label live dbg =
     ~live_offset:!live_offset dbg;
   lbl
 
-let record_frame ?label live dbg =
-  let lbl = record_frame_label ?label live dbg in `{emit_label lbl}:`
+let record_frame live dbg =
+  let lbl = record_frame_label live dbg in `{emit_label lbl}:`
 
 
 
@@ -149,10 +149,10 @@ type bound_error_call =
 
 let bound_error_sites = ref ([] : bound_error_call list)
 
-let bound_error_label ?label dbg =
+let bound_error_label dbg =
   if !Clflags.debug || !bound_error_sites = [] then begin
     let lbl_bound_error = new_label() in
-    let lbl_frame = record_frame_label ?label Reg.Set.empty (Dbg_other dbg) in
+    let lbl_frame = record_frame_label Reg.Set.empty (Dbg_other dbg) in
     bound_error_sites :=
       { bd_lbl = lbl_bound_error;
         bd_frame_lbl = lbl_frame } :: !bound_error_sites;
@@ -374,19 +374,19 @@ let emit_instruction i =
         emit_float_const i.res.(0) i.res.(1) f
     | Lop(Iconst_symbol s) ->
         emit_load_symbol i.res.(0) s
-    | Lop(Icall_ind {label_after;}) ->
+    | Lop(Icall_ind) ->
         `	callx0	{emit_reg i.arg.(0)}\n`;
-        `{record_frame i.live (Dbg_other i.dbg) ~label:label_after}\n`; 
-    | Lop(Icall_imm { func; label_after; }) ->
+        `{record_frame i.live (Dbg_other i.dbg)}\n`;
+    | Lop(Icall_imm { func; }) ->
         emit_call_to_OCaml func;
-        `{record_frame i.live (Dbg_other i.dbg) ~label:label_after}\n`;
-    | Lop(Itailcall_ind { label_after = _; }) ->
+        `{record_frame i.live (Dbg_other i.dbg)}\n`;
+    | Lop(Itailcall_ind) ->
         if !contains_calls then (* Reload ret addr *)
           `	l32i	a0, sp, {emit_int (frame_size() - 4)}\n`;
         output_epilogue begin fun () ->
           `	jx  	{emit_reg i.arg.(0)}\n`
         end
-    | Lop(Itailcall_imm { func; label_after = _;}) ->
+    | Lop(Itailcall_imm { func; }) ->
         if func = !function_name then begin
           `	j.l  	{emit_label !tailrec_entry_point}, a15\n`
         end else begin
@@ -399,18 +399,18 @@ let emit_instruction i =
             `	jx  	a15\n`
           end
         end
-    | Lop(Iextcall { func; alloc = false;}) -> 
+    | Lop(Iextcall { func; alloc = false; _}) ->
         `	{emit_call_to_C func}\n`
-    | Lop(Iextcall { func; alloc = true; label_after; }) -> 
+    | Lop(Iextcall { func; alloc = true; _}) ->
         emit_load_symbol (phys_reg 2 (* a4 *)) func;
         `	{emit_call_to_OCaml "caml_c_call"}\n`;
-        `{record_frame i.live (Dbg_other i.dbg) ~label:label_after}\n`
+        `{record_frame i.live (Dbg_other i.dbg)}\n`
     | Lop(Istackoffset n) -> 
         begin
           emit_stack_adjustment (-n);
           stack_offset := !stack_offset + n;
         end
-    | Lop(Iload((Double | Double_u), addr)) -> 
+    | Lop(Iload(Double, addr, _mut)) ->
         let addr' = offset_addressing addr 4 in
         begin
           if same_location i.res.(0).loc i.arg.(0).loc then begin (* Avoid address overwrite *)
@@ -421,7 +421,7 @@ let emit_instruction i =
             `	l32{emit_addressing_mode addr'}	{emit_reg i.res.(1)}, {emit_addressing 4 addr' i.arg 0}\n`
           end
         end
-    | Lop(Iload(size, addr)) -> 
+    | Lop(Iload(size, addr, _mut)) ->
         let r = i.res.(0) in
           let instr, align =
             match size with
@@ -431,7 +431,7 @@ let emit_instruction i =
             | Sixteen_signed -> "l16s", 2
             | _ (* 32-bit quantities *) -> "l32", 4 in
           `	{emit_string instr}{emit_addressing_mode addr}	{emit_reg r}, {emit_addressing align addr i.arg 0}\n`;
-    | Lop(Istore((Double | Double_u), addr, _)) -> 
+    | Lop(Istore(Double, addr, _)) -> 
         let addr' = offset_addressing addr 4 in
         begin
           `	s32{emit_addressing_mode addr}	{emit_reg i.arg.(0)}, {emit_addressing 4 addr i.arg 2}\n`;
@@ -447,10 +447,10 @@ let emit_instruction i =
           | Sixteen_signed -> "s16", 2
           | _ (* 32-bit quantities *) -> "s32", 4 in
         `	{emit_string instr}{emit_addressing_mode addr}	{emit_reg r}, {emit_addressing align addr i.arg 1}\n`;
-    | Lop(Ialloc { bytes = n; label_after_call_gc; }) ->
-        let lbl_frame = 
-          record_frame_label i.live (Dbg_other i.dbg) ?label:label_after_call_gc
-        in 
+    | Lop(Ialloc { bytes = n; _ }) ->
+        let lbl_frame =
+          record_frame_label i.live (Dbg_other i.dbg)
+        in
         begin match n with
           8 ->  `{emit_call_to_OCaml "caml_alloc1"}\n`
         | 12 -> `{emit_call_to_OCaml "caml_alloc2"}\n`
@@ -465,11 +465,11 @@ let emit_instruction i =
         emit_comparison cmp i.arg.(0) i.arg.(1) i.res.(0)
     | Lop(Iintop_imm(Icomp cmp, n)) -> 
         emit_comparison_imm cmp i.arg.(0) n i.res.(0)
-    | Lop(Iintop (Icheckbound { label_after_error ; } )) ->
-        let lbl = bound_error_label ?label:label_after_error i.dbg in
+    | Lop(Iintop (Icheckbound)) ->
+        let lbl = bound_error_label i.dbg in
         emit_if_then (Iunsigned Clt) i.arg.(0) (Register i.arg.(1)) lbl
-    | Lop(Iintop_imm(Icheckbound { label_after_error; }, n)) ->
-        let lbl = bound_error_label ?label:label_after_error i.dbg in 
+    | Lop(Iintop_imm(Icheckbound, n)) ->
+        let lbl = bound_error_label i.dbg in
         emit_if_then (Iunsigned Clt) i.arg.(0) (Immediate n) lbl
     | Lop(Iintop op) ->
         let instr, sar = name_for_int_operation op in
@@ -497,7 +497,16 @@ let emit_instruction i =
     | Lop(Iintoffloat) -> assert false (* Implemented by runtime ABI call *)
     | Lop(Iaddf | Isubf | Imulf | Idivf as _op) -> 
         assert false (* Implemented by runtime ABI call *)
-    | Lop(Iname_for_debugger _) -> ``
+    | Lop(Iopaque) -> ``
+    | Lop(Ipoll { return_label }) ->
+        (* Like the arm and i386 backends, only the branch is emitted: the
+           young-limit test of a real safepoint is implemented on amd64,
+           arm64 and power only, so allocation points remain the sole
+           opportunity for the GC to run. *)
+        begin match return_label with
+          None -> ()
+        | Some lbl -> `	j.l 	{emit_label lbl}, a15\n`
+        end
     | Lop(Ispecific(_)) -> ``
     | Lreloadretaddr -> 
         let n = frame_size() in (* First local variable is saved return address. *)
@@ -653,17 +662,18 @@ let emit_item = function
   | Cskip n -> if n > 0 then `	.space	{emit_int n}\n`
   | Calign n -> `.align	{emit_int(Misc.log2 n)}\n`
 
-let data l access_mode =
-  begin
-    match access_mode with 
-    | Read_only -> `.section	.rodata\n`
-    | Read_write -> `.section	.data\n`
-  end;
+(* Read-only data is deliberately not separated out into .rodata (which
+   would let the linker keep it in flash rather than in scarce DRAM): that
+   needs Cmm to carry an access mode, so it is left to a later change.
+   Until then the static data range below must bracket .data, as upstream
+   does, since OCaml static data is not all immutable. *)
+let data l =
+  `	.data\n`;
   List.iter emit_item l
 
 let begin_assembly() =
   let lbl_begin = Compilenv.make_symbol (Some "data_begin") in
-  `.section	.rodata\n`;
+  `	.data\n`;
   `.globl	{emit_symbol lbl_begin}\n`;
   `{emit_symbol lbl_begin}:\n`;
   let lbl_begin = Compilenv.make_symbol (Some "code_begin") in
@@ -677,7 +687,7 @@ let end_assembly () =
   `.globl	{emit_symbol lbl_end}\n`;
   `{emit_symbol lbl_end}:\n`;
   let lbl_end = Compilenv.make_symbol (Some "data_end") in
-  `.section	.rodata\n`;
+  `	.data\n`;
   `.globl	{emit_symbol lbl_end}\n`;
   `{emit_symbol lbl_end}:\n`;
   `	.long	0\n`;

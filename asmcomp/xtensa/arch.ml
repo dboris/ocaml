@@ -17,8 +17,6 @@ let command_line_options = []
 
 type specific_operation = unit
 
-let spacetime_node_hole_pointer_is_live_before _specific_op = false
-
 type addressing_mode = Iindexed of int
 
 let big_endian = false
@@ -43,4 +41,12 @@ let print_addressing printreg addr ppf arg =
     if n <> 0 then fprintf ppf ", %i" n
 
 let print_specific_operation _printreg _op _ppf _arg = ()
+
+(* Specific operations that are pure *)
+
+let operation_is_pure _ = true
+
+(* Specific operations that can raise *)
+
+let operation_can_raise _ = false
 
