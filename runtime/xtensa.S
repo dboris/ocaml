@@ -47,22 +47,75 @@ caml_system__code_begin:
  */
 caml_call_gc:
 .Lcaml_call_gc:
-/* Record return address */
+/* Record the OCaml frame.  caml_call_gc is entered with call0, and the
+   caml_allocN helpers branch here rather than call, so sp and a0 are
+   still those of the OCaml frame the allocation point describes. */
     rfr     a15, f2
     s32i    a0, a15, Caml_state(last_return_address)
-/* Record lowest stack address */
     s32i    sp, a15, Caml_state(bottom_of_stack)
-/* Save stack pointer */
-    s32i    sp, a15, Caml_state(gc_regs)
-/* Save allocation pointer */
+/* Save allocation pointer.  caml_garbage_collection derives the request
+   size from it, so it has to be stored before the collector runs. */
     ssi     f1, a15, Caml_state(young_ptr)
-/* Save trap pointer */
+/* Save trap pointer in case an exception is raised during GC */
     ssi     f0, a15, Caml_state(exception_pointer)
-/* Call the garbage collector: C call saves a0-a11 */
-    call12   caml_garbage_collection
+/* Reserve a 64-byte block for the register roots (13 words, rounded up
+   to keep sp 16-byte aligned).  This uses movsp rather than a plain add
+   because the 16 bytes below sp hold the caller's spilled base save
+   area, which the block would otherwise overwrite.  movsp takes the
+   window increment from the top bits of a0, so a0 is scratched here and
+   reloaded from last_return_address before returning - the callback link
+   in .Ljump_to_caml restores that field around any OCaml the collector
+   runs, so it survives finalisers. */
+    movi    a0, 2
+    slli    a0, a0, 30
+    addi    a15, sp, -64
+    movsp   sp, a15
+/* Save OCaml's registers where the frame descriptors say they are:
+   record_frame_label emits (i << 1) | 1 for Proc.phys_reg i, and
+   caml_do_local_roots_nat reads gc_regs[i], so slot i must hold the
+   register phys_reg i denotes, i.e. a(i+2). */
+    s32i    a2, sp, 0
+    s32i    a3, sp, 4
+    s32i    a4, sp, 8
+    s32i    a5, sp, 12
+    s32i    a6, sp, 16
+    s32i    a7, sp, 20
+    s32i    a8, sp, 24
+    s32i    a9, sp, 28
+    s32i    a10, sp, 32
+    s32i    a11, sp, 36
+    s32i    a12, sp, 40
+    s32i    a13, sp, 44
+    s32i    a14, sp, 48
+    rfr     a15, f2
+    s32i    sp, a15, Caml_state(gc_regs)
+/* Call the garbage collector */
+    call12  caml_garbage_collection
+/* Reload the registers: the collector rewrites the roots in place when
+   it promotes values out of the minor heap or compacts. */
+    l32i    a2, sp, 0
+    l32i    a3, sp, 4
+    l32i    a4, sp, 8
+    l32i    a5, sp, 12
+    l32i    a6, sp, 16
+    l32i    a7, sp, 20
+    l32i    a8, sp, 24
+    l32i    a9, sp, 28
+    l32i    a10, sp, 32
+    l32i    a11, sp, 36
+    l32i    a12, sp, 40
+    l32i    a13, sp, 44
+    l32i    a14, sp, 48
 /* Reload new allocation pointer and limit */
     rfr     a15, f2
     lsi     f1, a15, Caml_state(young_ptr) /* Load new f1 */
+/* Drop the block, then recover the return address */
+    movi    a0, 2
+    slli    a0, a0, 30
+    addi    a15, sp, 64
+    movsp   sp, a15
+    rfr     a15, f2
+    l32i    a0, a15, Caml_state(last_return_address)
 /* Return to caller */
     ret
     .type   caml_call_gc, %function
