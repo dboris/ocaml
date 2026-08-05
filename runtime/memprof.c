@@ -31,6 +31,67 @@
 #include "caml/printexc.h"
 #include "caml/eventlog.h"
 
+#ifdef CAML_DISABLE_MEMPROF
+
+/* Statistical memory profiling, compiled out.  The sampler is driven from
+   the GC and the allocation path, so the rest of the runtime references it
+   unconditionally and the module lands in every executable -- about 7 KB
+   on a 32-bit target, for something an embedded program is unlikely to
+   turn on.  Rather than make each of those call sites conditional, the
+   module keeps its entire interface and does nothing, which is what it
+   already does until Gc.Memprof.start is called.
+
+   The one piece with an invariant to preserve is the sampling trigger.
+   caml_update_young_limit folds it into young_limit and asserts it lies
+   inside the minor heap, so it has to be the value the real sampler uses
+   when it is inactive, namely the bottom of the minor heap: never reached,
+   and never the maximum in that fold. */
+
+value* caml_memprof_young_trigger = NULL;
+
+void caml_memprof_renew_minor_sample(void)
+{
+  caml_memprof_young_trigger = Caml_state->young_alloc_start;
+  caml_update_young_limit();
+}
+
+void caml_memprof_set_suspended(int s) { (void) s; }
+value caml_memprof_handle_postponed_exn(void) { return Val_unit; }
+void caml_memprof_track_alloc_shr(value b) { (void) b; }
+void caml_memprof_track_custom(value b, mlsize_t n) { (void) b; (void) n; }
+void caml_memprof_track_interned(header_t* b, header_t* e)
+{ (void) b; (void) e; }
+void caml_memprof_track_young(uintnat wosize, int from_caml,
+                              int nallocs, unsigned char* alloc_lens)
+{ /* unreachable: young_ptr never gets below the trigger set above */
+  (void) wosize; (void) from_caml; (void) nallocs; (void) alloc_lens; }
+void caml_memprof_oldify_young_roots(void) { }
+void caml_memprof_minor_update(void) { }
+void caml_memprof_do_roots(scanning_action f) { (void) f; }
+void caml_memprof_update_clean_phase(void) { }
+void caml_memprof_invert_tracked(void) { }
+
+CAMLprim value caml_memprof_start(value lv, value szv, value tracker)
+{
+  (void) lv; (void) szv; (void) tracker;
+  caml_failwith("Gc.Memprof.start: this runtime was built with "
+                "CAML_DISABLE_MEMPROF");
+}
+
+CAMLprim value caml_memprof_stop(value unit) { (void) unit; return Val_unit; }
+
+/* Per-thread contexts, used only by systhreads. */
+struct caml_memprof_th_ctx { int suspended; };
+struct caml_memprof_th_ctx caml_memprof_main_ctx = { 0 };
+struct caml_memprof_th_ctx* caml_memprof_new_th_ctx(void)
+{ return &caml_memprof_main_ctx; }
+void caml_memprof_leave_thread(void) { }
+void caml_memprof_enter_thread(struct caml_memprof_th_ctx* ctx) { (void) ctx; }
+void caml_memprof_delete_th_ctx(struct caml_memprof_th_ctx* ctx) { (void) ctx; }
+void (*caml_memprof_th_ctx_iter_hook)(th_ctx_action, void*) = NULL;
+
+#else /* ! CAML_DISABLE_MEMPROF */
+
 #define RAND_BLOCK_SIZE 64
 
 static uint32_t xoshiro_state[4][RAND_BLOCK_SIZE];
@@ -1134,3 +1195,5 @@ CAMLexport void caml_memprof_enter_thread(struct caml_memprof_th_ctx* ctx)
   local = ctx;
   caml_memprof_set_suspended(ctx->suspended);
 }
+
+#endif /* CAML_DISABLE_MEMPROF */
