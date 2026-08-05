@@ -346,9 +346,25 @@ let udivmod n d = Nativeint.(
 (* Compute division parameters.
    Algorithm: Hacker's Delight chapter 10, fig 10-1. *)
 
-let divimm_parameters d = Nativeint.(
+(* Sign-extend the low [width] bits of [n], so that a target word can be
+   carried around in a Nativeint and still compare correctly against 0. *)
+let sign_extend_nativeint ~width n =
+  if width >= Nativeint.size then n
+  else
+    let shift = Nativeint.size - width in
+    Nativeint.shift_right (Nativeint.shift_left n shift) shift
+
+(* [width] is the bit width of a target word, which is not [Nativeint.size]
+   when cross-compiling: computing the parameters at the host's width emits
+   a multiplier and a shift that divide by the right constant only on a
+   host-sized word.  Every quantity below is an unsigned [width]-bit
+   number.  When [width] is the host width they are held exactly as before,
+   wrapping around at 2^width; when it is narrower they stay non-negative
+   and well inside a Nativeint, and the unsigned comparisons and divisions
+   then coincide with the signed ones. *)
+let divimm_parameters ~width d = Nativeint.(
   assert (d > 0n);
-  let twopsm1 = min_int in (* 2^31 for 32-bit archs, 2^63 for 64-bit archs *)
+  let twopsm1 = shift_left 1n (width - 1) in (* 2^(width-1) *)
   let nc = sub (pred twopsm1) (snd (udivmod twopsm1 d)) in
   let rec loop p (q1, r1) (q2, r2) =
     let p = p + 1 in
@@ -361,8 +377,8 @@ let divimm_parameters d = Nativeint.(
     let delta = sub d r2 in
     if ucompare q1 delta < 0 || (q1 = delta && r1 = 0n)
     then loop p (q1, r1) (q2, r2)
-    else (succ q2, p - size)
-  in loop (size - 1) (udivmod twopsm1 nc) (udivmod twopsm1 d))
+    else (sign_extend_nativeint ~width (succ q2), p - width)
+  in loop (width - 1) (udivmod twopsm1 nc) (udivmod twopsm1 d))
 
 (* The result [(m, p)] of [divimm_parameters d] satisfies the following
    inequality:
@@ -435,7 +451,7 @@ let rec div_int c1 c2 is_safe dbg =
         Cop(Casr, [bind "dividend" c1 (fun c1 ->
                      let t = asr_int c1 (Cconst_int (l - 1, dbg)) dbg in
                      let t =
-                       lsr_int t (Cconst_int (Nativeint.size - l, dbg)) dbg
+                       lsr_int t (Cconst_int (size_int * 8 - l, dbg)) dbg
                      in
                      add_int c1 t dbg);
                    Cconst_int (l, dbg)], dbg)
@@ -444,7 +460,9 @@ let rec div_int c1 c2 is_safe dbg =
           (div_int c1 (Cconst_int (-n, dbg)) is_safe dbg)
           dbg
       else begin
-        let (m, p) = divimm_parameters (Nativeint.of_int n) in
+        let (m, p) =
+          divimm_parameters ~width:(size_int * 8) (Nativeint.of_int n)
+        in
         (* Algorithm:
               t = multiply-high-signed(c1, m)
               if m < 0, t = t + c1
@@ -457,7 +475,7 @@ let rec div_int c1 c2 is_safe dbg =
           let t =
             if p > 0 then Cop(Casr, [t; Cconst_int (p, dbg)], dbg) else t
           in
-          add_int t (lsr_int c1 (Cconst_int (Nativeint.size - 1, dbg)) dbg) dbg)
+          add_int t (lsr_int c1 (Cconst_int (size_int * 8 - 1, dbg)) dbg) dbg)
       end
   | (c1, c2) when !Clflags.unsafe || is_safe = Lambda.Unsafe ->
       Cop(Cdivi, [c1; c2], dbg)
@@ -491,7 +509,7 @@ let mod_int c1 c2 is_safe dbg =
          *)
         bind "dividend" c1 (fun c1 ->
           let t = asr_int c1 (Cconst_int (l - 1, dbg)) dbg in
-          let t = lsr_int t (Cconst_int (Nativeint.size - l, dbg)) dbg in
+          let t = lsr_int t (Cconst_int (size_int * 8 - l, dbg)) dbg in
           let t = add_int c1 t dbg in
           let t = Cop(Cand, [t; Cconst_int (-n, dbg)], dbg) in
           sub_int c1 t dbg)
