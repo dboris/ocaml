@@ -252,6 +252,15 @@ trap_handler:
 /* Encode exception bucket as an exception result */
     movi    a11, 2
     or      a2, a2, a11
+/* The raiser popped the 8-byte trap frame, but the callback link was
+   stored 16 bytes above it (.Ljump_to_caml leaves 8 bytes of padding), so
+   step over the padding.  Using movsp also drags the base save area next
+   to the link, which is where the retw in .Lreturn_result expects it —
+   the same thing .Lcaml_retaddr's movsp does on the normal return path. */
+    movi    a11, 2
+    slli    a0, a11, 30
+    addi    a11, sp, 8
+    movsp   sp, a11
 /* Return it */
     j       .Lreturn_result
     .type   trap_handler, %function
@@ -283,10 +292,14 @@ caml_raise_exn:
     lsi     f0, a15, 0
 /* Load trap destination in f5 (then it will be loaded in a0) */
     lsi     f5, a15, 4
-/* Set new stack using movsp and a fake call8 */
+/* Set new stack using movsp and a fake call8.
+   The trap frame is 8 bytes (Lpushtrap in emit.mlp allocates 8 and
+   Ladjust_trap_depth accounts 8 per trap), so popping it moves sp by 8,
+   exactly as the inline Raise_notrace sequence does.  The movsp drags the
+   16-byte base save area to just below the new sp. */
     movi    a14, 2
     slli    a0, a14, 30
-    addi    a15, a15, 16
+    addi    a15, a15, 8
     movsp   sp, a15
     rfr     a0, f5
     ret
@@ -299,10 +312,12 @@ caml_raise_exn:
     .globl caml_raise_exception
 caml_raise_exception:
     entry   sp, 16
-/* Spill all registers on stack. saving a2 in a15 */
+/* Keep the domain state and the bucket in registers that survive the
+   spill: a2 is the syscall selector and a3 is clobbered below. */
     mov     a15, a2
+    mov     a14, a3
     movi    a2, 0
-    syscall /* System call 0: flush all registers on stack. */
+    syscall /* System call 0: flush all register windows to the stack. */
 /* Store domain state pointer */
     wfr     f2, a15
 /* Reload trap ptr and alloc ptr */
@@ -310,51 +325,32 @@ caml_raise_exception:
     lsi     f1, a15, Caml_state(young_ptr)
 /* Test if backtrace is active */
     l32i    a4, a15, Caml_state(backtrace_active)
-    beqz    a4, 1f 
-/* Exception bucket is preserved in callee-save register a3 */
-    mov     a6, a3  /* Arg1: exception bucket*/
-    l32i    a7, a15, Caml_state(last_return_address) 
+    beqz    a4, 1f
+    mov     a6, a14 /* Arg1: exception bucket */
+    l32i    a7, a15, Caml_state(last_return_address)
     l32i    a8, a15, Caml_state(bottom_of_stack)
     rfr     a9, f0
-    call4   caml_stash_backtrace 
-    mov     a15, a2 /* Reload domain state */
+    call4   caml_stash_backtrace
+    rfr     a15, f2 /* Reload domain state */
 1:
-/* Cut stack at bottom of stack before C call to get back caller's spilled registers */
+/* Cut the stack back to where OCaml left it when it entered caml_c_call:
+   the C frames below are dead.  All windows were spilled above, so a raw
+   write to sp is safe, and the base save area that OCaml's stack
+   adjustments drag around sits at sp - 16 exactly as after any OCaml
+   stack move, so the movsp below relocates it like any other. */
     l32i    sp, a15, Caml_state(bottom_of_stack)
-/* Under SP there are 4 spilled registers of OCaml code caller */
-
-/* Find stack pointer at current trap handler */
+/* The handler takes the bucket in OCaml's exception register */
+    mov     a2, a14
+/* From here on this is the tail of caml_raise_exn */
     rfr     a15, f0
-/* Pop previous trap handler */
-    lsi     f0, a15, 0
-/* Load trap destination */
-    l32i    a0, a15, 4
-/* Erase two high bits */
-    slli    a0, a0, 2
-    srli    a0, a0, 2
-/* Set as call4 */
-    movi    a3, 1
-    slli    a3, a3, 30
-    or      a0, a3, a0
-/* a15 holds new stack pointer */
-    addi    a15, a15, 16
-/* under a15 there will be a0-a3 registers updated on OCaml retw */
-/* under sp there will be a0-a3 registers updated on exception retw */
-    .globl after_syscall
-after_syscall:
-    l32e    a11, sp, -4 
-    l32e    a12, sp, -8 
-    l32e    a13, sp, -12
-    l32e    a14, sp, -16
-    s32e    a11, a15, -4 
-    s32e    a12, a15, -8 
-    s32e    a13, a15, -12
-    s32e    a14, a15, -16
-/* Store trap sp, that will be set in register on window underflow */
-    s32e    a15, sp, -12 /* a1 */
-    s32e    a2, sp, -8 /* a2 */
-/* Jump on trap handler and underflow, restoring stack pointer. */
-    retw
+    lsi     f0, a15, 0 /* Pop previous trap handler */
+    lsi     f5, a15, 4 /* Load trap destination */
+    movi    a14, 2 /* Fake call8 for movsp */
+    slli    a0, a14, 30
+    addi    a15, a15, 8 /* Pop the 8-byte trap frame */
+    movsp   sp, a15
+    rfr     a0, f5
+    ret
 
     .type   caml_raise_exception, %function
     .size   caml_raise_exception, .-caml_raise_exception
@@ -366,9 +362,10 @@ after_syscall:
     .globl  caml_callback_asm
 caml_callback_asm:
     entry   sp, (4+8+4+4)*4
-/* Initial shuffling of argments (a2 = closure, a3 = first arg) */
-    mov     a11, a2
-    mov     a2, a3      /* a2 = first arg */
+/* Incoming C arguments: a2 = Caml_state (reloaded from the global by
+   .Ljump_to_caml, so ignored here), a3 = closure, a4 = args array. */
+    mov     a11, a3     /* closure */
+    l32i    a2, a4, 0   /* a2 = args[0] */
     mov     a3, a11     /* a3 = closure environment */
     l32i    a11, a11, 0 /* code pointer */
     j       .Ljump_to_caml
@@ -381,11 +378,13 @@ caml_callback_asm:
     .globl  caml_callback2_asm
 caml_callback2_asm:
     entry   sp, (4+8+4+4)*4
-/* Initial shuffling of argments (a2 = closure, a3 = arg1, a4 = arg2) */
-    mov     a11, a2
-    mov     a2, a3      /* a2 = first arg */
-    mov     a3, a4      /* a3 = second arg */
-    mov     a4, a11     /* a4 = closure environment */
+/* Incoming C arguments: a2 = Caml_state (ignored), a3 = closure,
+   a4 = args array. */
+    mov     a11, a3     /* closure */
+    mov     a10, a4     /* args */
+    l32i    a2, a10, 0  /* a2 = args[0] */
+    l32i    a3, a10, 4  /* a3 = args[1] */
+    mov     a4, a11     /* a4 = closure */
 .literal __caml_apply2, caml_apply2
     l32r    a11, __caml_apply2
     j       .Ljump_to_caml
@@ -398,12 +397,14 @@ caml_callback2_asm:
     .globl  caml_callback3_asm
 caml_callback3_asm:
     entry   sp, (4+8+4+4)*4
-/* Initial shuffling of argments (a2 = closure, a3 = arg1, a4 = arg2, a5 = arg3) */
-    mov     a11, a2
-    mov     a2, a3      /* a2 = first arg */
-    mov     a3, a4      /* a3 = first arg */
-    mov     a4, a5      /* a4 = first arg */
-    mov     a5, a11     /* a5 = closure environment */
+/* Incoming C arguments: a2 = Caml_state (ignored), a3 = closure,
+   a4 = args array. */
+    mov     a11, a3     /* closure */
+    mov     a10, a4     /* args */
+    l32i    a2, a10, 0  /* a2 = args[0] */
+    l32i    a3, a10, 4  /* a3 = args[1] */
+    l32i    a4, a10, 8  /* a4 = args[2] */
+    mov     a5, a11     /* a5 = closure */
 .literal __caml_apply3, caml_apply3
     l32r    a11, __caml_apply3
     j       .Ljump_to_caml
