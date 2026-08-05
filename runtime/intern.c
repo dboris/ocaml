@@ -37,6 +37,76 @@
 #include "caml/reverse.h"
 #include "caml/signals.h"
 
+#ifdef CAML_DISABLE_MARSHAL
+
+/* Marshalling, compiled out.  Stdlib always defines output_value and the
+   custom operations of Int32/Int64/Nativeint always define a deserializer,
+   so extern.c and intern.c are referenced from every program and together
+   cost about 16 KB on a 32-bit target.  The interface is kept whole and
+   fails at its entry points, so a program that does try to marshal gets an
+   exception rather than a link error naming an internal symbol.
+
+   Note that this also disables Obj.reachable_words, which shares the
+   traversal machinery, and unmarshalling of Int32/Int64/Nativeint and
+   bigarrays through their custom operations. */
+
+CAMLnoreturn_start
+static void marshal_disabled(const char * what)
+CAMLnoreturn_end;
+
+static void marshal_disabled(const char * what)
+{
+  caml_failwith(what == NULL ? "marshalling is not available: this runtime "
+                "was built with CAML_DISABLE_MARSHAL" : what);
+}
+
+value caml_input_val(struct channel *chan)
+{ (void) chan; marshal_disabled(NULL); return Val_unit; }
+
+CAMLprim value caml_input_value(value vchan)
+{ (void) vchan; marshal_disabled(NULL); return Val_unit; }
+
+CAMLexport value caml_input_val_from_bytes(value str, intnat ofs)
+{ (void) str; (void) ofs; marshal_disabled(NULL); return Val_unit; }
+
+CAMLprim value caml_input_value_from_bytes(value str, value ofs)
+{ (void) str; (void) ofs; marshal_disabled(NULL); return Val_unit; }
+
+CAMLexport value caml_input_value_from_malloc(char * data, intnat ofs)
+{ (void) data; (void) ofs; marshal_disabled(NULL); return Val_unit; }
+
+CAMLexport value caml_input_value_from_block(char * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); return Val_unit; }
+
+CAMLprim value caml_marshal_data_size(value buff, value ofs)
+{ (void) buff; (void) ofs; marshal_disabled(NULL); return Val_unit; }
+
+CAMLexport int caml_deserialize_uint_1(void) { marshal_disabled(NULL); return 0; }
+CAMLexport int caml_deserialize_sint_1(void) { marshal_disabled(NULL); return 0; }
+CAMLexport int caml_deserialize_uint_2(void) { marshal_disabled(NULL); return 0; }
+CAMLexport int caml_deserialize_sint_2(void) { marshal_disabled(NULL); return 0; }
+CAMLexport uint32_t caml_deserialize_uint_4(void) { marshal_disabled(NULL); return 0; }
+CAMLexport int32_t caml_deserialize_sint_4(void) { marshal_disabled(NULL); return 0; }
+CAMLexport uint64_t caml_deserialize_uint_8(void) { marshal_disabled(NULL); return 0; }
+CAMLexport int64_t caml_deserialize_sint_8(void) { marshal_disabled(NULL); return 0; }
+CAMLexport float caml_deserialize_float_4(void) { marshal_disabled(NULL); return 0; }
+CAMLexport double caml_deserialize_float_8(void) { marshal_disabled(NULL); return 0; }
+CAMLexport void caml_deserialize_block_1(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_deserialize_block_2(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_deserialize_block_4(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_deserialize_block_8(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_deserialize_block_float_8(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_deserialize_error(char * msg)
+{ (void) msg; marshal_disabled(NULL); }
+
+#else /* ! CAML_DISABLE_MARSHAL */
+
+
 
 static unsigned char * intern_src;
 /* Reading pointer in block holding input data. */
@@ -1158,3 +1228,5 @@ CAMLexport void caml_deserialize_error(char * msg)
   intern_cleanup();
   caml_failwith(msg);
 }
+
+#endif /* CAML_DISABLE_MARSHAL */

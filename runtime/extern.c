@@ -33,6 +33,81 @@
 #include "caml/mlvalues.h"
 #include "caml/reverse.h"
 
+#ifdef CAML_DISABLE_MARSHAL
+
+/* Marshalling, compiled out.  Stdlib always defines output_value and the
+   custom operations of Int32/Int64/Nativeint always define a deserializer,
+   so extern.c and intern.c are referenced from every program and together
+   cost about 16 KB on a 32-bit target.  The interface is kept whole and
+   fails at its entry points, so a program that does try to marshal gets an
+   exception rather than a link error naming an internal symbol.
+
+   Note that this also disables Obj.reachable_words, which shares the
+   traversal machinery, and unmarshalling of Int32/Int64/Nativeint and
+   bigarrays through their custom operations. */
+
+CAMLnoreturn_start
+static void marshal_disabled(const char * what)
+CAMLnoreturn_end;
+
+static void marshal_disabled(const char * what)
+{
+  caml_failwith(what == NULL ? "marshalling is not available: this runtime "
+                "was built with CAML_DISABLE_MARSHAL" : what);
+}
+
+void caml_output_val(struct channel *chan, value v, value flags)
+{ (void) chan; (void) v; (void) flags; marshal_disabled(NULL); }
+
+CAMLprim value caml_output_value(value vchan, value v, value flags)
+{ (void) vchan; (void) v; (void) flags; marshal_disabled(NULL); return Val_unit; }
+
+CAMLprim value caml_output_value_to_bytes(value v, value flags)
+{ (void) v; (void) flags; marshal_disabled(NULL); return Val_unit; }
+
+CAMLprim value caml_output_value_to_string(value v, value flags)
+{ (void) v; (void) flags; marshal_disabled(NULL); return Val_unit; }
+
+CAMLexport intnat caml_output_value_to_block(value v, value flags,
+                                             char * buf, intnat len)
+{ (void) v; (void) flags; (void) buf; (void) len; marshal_disabled(NULL);
+  return 0; }
+
+CAMLprim value caml_output_value_to_buffer(value buf, value ofs, value len,
+                                           value v, value flags)
+{ (void) buf; (void) ofs; (void) len; (void) v; (void) flags;
+  marshal_disabled(NULL); return Val_unit; }
+
+CAMLexport void caml_output_value_to_malloc(value v, value flags,
+                                            char ** buf, intnat * len)
+{ (void) v; (void) flags; (void) buf; (void) len; marshal_disabled(NULL); }
+
+CAMLexport void caml_serialize_int_1(int i) { (void) i; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_int_2(int i) { (void) i; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_int_4(int32_t i) { (void) i; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_int_8(int64_t i) { (void) i; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_float_4(float f) { (void) f; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_float_8(double f) { (void) f; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_block_1(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_block_2(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_block_4(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_block_8(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+CAMLexport void caml_serialize_block_float_8(void * data, intnat len)
+{ (void) data; (void) len; marshal_disabled(NULL); }
+
+CAMLprim value caml_obj_reachable_words(value v)
+{ (void) v;
+  marshal_disabled("Obj.reachable_words is not available: this runtime "
+                   "was built with CAML_DISABLE_MARSHAL");
+  return Val_unit; }
+
+#else /* ! CAML_DISABLE_MARSHAL */
+
+
 static uintnat obj_counter;  /* Number of objects emitted so far */
 static uintnat size_32;  /* Size in words of 32-bit block for struct. */
 static uintnat size_64;  /* Size in words of 64-bit block for struct. */
@@ -1191,3 +1266,5 @@ CAMLprim value caml_obj_reachable_words(value v)
   extern_free_position_table();
   return Val_long(size);
 }
+
+#endif /* CAML_DISABLE_MARSHAL */
