@@ -470,9 +470,10 @@ caml_callback3_asm:
     .align  4
     .globl  caml_ml_array_bound_error
 caml_ml_array_bound_error:
-/* Load address of [caml_array_bound_error] in */
+/* Load address of [caml_array_bound_error] in a4, which is where
+   caml_c_call expects the C function to call (see above). */
     .literal __caml_array_bound_error, caml_array_bound_error
-    l32r    a9, __caml_array_bound_error
+    l32r    a4, __caml_array_bound_error
 /* Call that function */
     call0   caml_c_call
     ret
