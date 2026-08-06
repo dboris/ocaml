@@ -107,8 +107,10 @@ let slot_offset loc _cl =
       assert (n >= 0);
       n
   | Domainstate _ ->
-      (* Proc.calling_conventions never allocates arguments in the domain
-         state area on this target. *)
+      (* Not in the frame; see emit_stack.  A Domainstate slot never holds
+         a live value at a GC point either -- the callee copies its
+         arguments out before it can allocate -- so record_frame_label
+         never asks for its offset. *)
       Misc.fatal_error "Emit.slot_offset: not a stack slot"
   in
   res
@@ -306,10 +308,25 @@ let emit_fill_shift_register instr reg = match instr with
   | Iasr | Ilsr -> `	ssr	{emit_reg reg}\n`
   | _ -> assert false
 
-let emit_stack r = 
-  match r.loc with  
-  | Stack s -> 
-    let ofs = slot_offset s (register_class r) in 
+(* A Domainstate location is not in the frame at all: it is a slot of the
+   domain state's extra_params area, used to pass arguments beyond the
+   registers in a way that survives a tail call.  The domain state pointer
+   lives in f2, so it has to be moved to the scratch register before the
+   access; this has to be emitted as its own instruction, hence the
+   separate function to call first. *)
+let emit_stack_base r =
+  match r.loc with
+  | Stack (Domainstate _) -> `	rfr 	a15, f2\n`
+  | _ -> ()
+
+let emit_stack r =
+  match r.loc with
+  | Stack (Domainstate n) ->
+    let ofs = n + Domainstate.(idx_of_field Domain_extra_params) * 8 in
+    assert (ofs >= 0 && ofs mod 4 == 0) ;
+    `a15, {emit_int ofs}`
+  | Stack s ->
+    let ofs = slot_offset s (register_class r) in
     assert (ofs >= 0 && ofs mod 4 == 0) ;
     `sp, {emit_int ofs}`
   | _ -> fatal_error "Emit_xtensa.emit_stack"
@@ -360,9 +377,11 @@ let emit_instruction i =
           match (src.loc, dst.loc) with 
           | Reg _, Reg _ -> 
               `	mov 	{emit_reg dst}, {emit_reg src}\n`
-          | Reg _, Stack _ -> 
+          | Reg _, Stack _ ->
+              emit_stack_base dst;
               `	s32i	{emit_reg src}, {emit_stack dst}\n`
-          | Stack _, Reg _ -> 
+          | Stack _, Reg _ ->
+              emit_stack_base src;
               `	l32i	{emit_reg dst}, {emit_stack src}\n`
           | _, _ -> assert false
         end

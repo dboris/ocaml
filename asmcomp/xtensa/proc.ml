@@ -122,11 +122,13 @@ let loc_int_pair last_reg make_stack reg ofs =
     [| stack_lower; stack_upper |]
   end
 
+let size_domainstate_args = 64 * Arch.size_int
+
 let calling_conventions
-    first_reg last_reg make_stack arg =
+    first_reg last_reg make_stack first_stack arg =
   let loc = Array.make (Array.length arg) Reg.dummy in
   let current_reg = ref first_reg in
-  let stack_ofs = ref 0 in
+  let stack_ofs = ref first_stack in
   for i = 0 to Array.length arg - 1 do
     match arg.(i) with
     | Val | Int | Addr ->
@@ -137,32 +139,42 @@ let calling_conventions
            component reaches here. *)
         fatal_error "Proc.calling_conventions: unexpected Float component"
   done;
-  (loc, Misc.align !stack_ofs 16)
+  (loc, Misc.align (max 0 !stack_ofs) 16)
 
-let incoming ofs = Incoming ofs
-let outgoing ofs = Outgoing ofs
+(* Arguments start at a negative offset, so the ones that do not fit in
+   registers go to the extra_params area of the domain state before they
+   go on the stack.  Domain state arguments do not count towards the frame
+   size, which is what lets a call with more than six arguments still be a
+   tail call. *)
+let incoming ofs =
+  if ofs >= 0 then Incoming ofs
+  else Domainstate (ofs + size_domainstate_args)
+let outgoing ofs =
+  if ofs >= 0 then Outgoing ofs
+  else Domainstate (ofs + size_domainstate_args)
 let not_supported _ofs = fatal_error "Proc.loc_results: cannot call"
 
-let max_arguments_for_tailcalls = 6
+let max_arguments_for_tailcalls = 6 (* in regs *) + 64 (* in domain state *)
 
 (*
  * Calling conventions CALL0 ABI
  * a0 Return Address
  * a1 sp (preserved)
  * a2 – a7 Function Arguments
+ * remaining arguments in the domain state, then on the stack
  *)
 let loc_arguments arg =
-  calling_conventions 0 5 outgoing arg
+  calling_conventions 0 5 outgoing (- size_domainstate_args) arg
 
 let loc_parameters arg =
   let (loc, _ofs) =
-    calling_conventions 0 5 incoming arg
+    calling_conventions 0 5 incoming (- size_domainstate_args) arg
   in
   loc
 
 let loc_results res =
   let (loc, _ofs) =
-    calling_conventions 0 3 not_supported res
+    calling_conventions 0 3 not_supported 0 res
   in
   loc
 
@@ -176,7 +188,7 @@ let loc_results res =
  *)
 let loc_external_results res =
   let (loc, _ofs) =
-    calling_conventions 4 7 not_supported res
+    calling_conventions 4 7 not_supported 0 res
   in
   loc
 
