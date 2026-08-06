@@ -66,8 +66,11 @@ let is_immediate = function
   | Type_immediacy.Always -> true
   | Type_immediacy.Always_on_64bits ->
       (* In bytecode, we don't know at compile time whether we are
-         targeting 32 or 64 bits. *)
-      !Clflags.native_code && Sys.word_size = 64
+         targeting 32 or 64 bits.  Config.word_size and not Sys.word_size:
+         what decides this is the word size of the target, and calling an
+         [@@immediate64] type immediate on a 32-bit target would drop the
+         write barrier on values that really are pointers there. *)
+      !Clflags.native_code && Config.word_size = 64
 
 let maybe_pointer_type env ty =
   let ty = scrape_ty env ty in

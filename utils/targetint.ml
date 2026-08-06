@@ -61,9 +61,9 @@ module type S = sig
   val print : Format.formatter -> t -> unit
 end
 
-let size = Sys.word_size
-(* Later, this will be set by the configure script
-   in order to support cross-compilation. *)
+(* The target's word size, which configure derives from the target's own C
+   compiler; Sys.word_size, used here before, is the host's. *)
+let size = Config.word_size
 
 module Int32 = struct
   include Int32

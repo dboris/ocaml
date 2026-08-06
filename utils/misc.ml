@@ -380,8 +380,14 @@ let no_overflow_sub a b = (a lxor (lnot b)) lor (b lxor (a-b)) < 0
 let no_overflow_mul a b =
   not ((a = min_int && b < 0) || (b <> 0 && (a * b) / b <> a))
 
+(* Whether [a lsl k] overflows an [int] ON THE TARGET: its callers use it
+   to decide whether a shift of a constant may be folded, and the answer
+   depends on the target's int, not on the host's. *)
 let no_overflow_lsl a k =
-  0 <= k && k < Sys.word_size - 1 && min_int asr k <= a && a <= max_int asr k
+  let bits = Config.int_size in
+  let max = (1 lsl (bits - 1)) - 1 in
+  let min = - max - 1 in
+  0 <= k && k < bits && min asr k <= a && a <= max asr k
 
 module Int_literal_converter = struct
   (* To convert integer literals, allowing max_int + 1 (PR#4210) *)
