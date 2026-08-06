@@ -425,12 +425,15 @@ let emit_instruction i =
         let r = i.res.(0) in
           let instr, align =
             match size with
-              Byte_unsigned -> "l8u", 1
-            | Byte_signed -> assert false
+              Byte_unsigned | Byte_signed -> "l8u", 1
             | Sixteen_unsigned -> "l16u", 2
             | Sixteen_signed -> "l16s", 2
             | _ (* 32-bit quantities *) -> "l32", 4 in
           `	{emit_string instr}{emit_addressing_mode addr}	{emit_reg r}, {emit_addressing align addr i.arg 0}\n`;
+          (* There is no sign-extending byte load; sext completes it, as
+             the C compiler does for a signed char. *)
+          if size = Byte_signed then
+            `	sext	{emit_reg r}, {emit_reg r}, 7\n`;
     | Lop(Istore(Double, addr, _)) -> 
         let addr' = offset_addressing addr 4 in
         begin
