@@ -270,6 +270,42 @@ let simplif_arith_prim_pure ~backend fpc p (args, approxs) dbg =
   let module B = (val backend : Backend_intf.S) in
   let open Clambda_primitives in
   let default = (Uprim(p, args, dbg), Value_unknown) in
+  (* The constants below are host integers, but every fold has to produce
+     the value the *target* would compute, which is not the same thing
+     when the two word sizes differ.  Two ways it goes wrong: a result
+     that overflows the target wraps there and not here, and a logical
+     shift right of a negative number brings in the host's extra bits.
+     So results are wrapped to the target's width, and lsr is given the
+     target's bit pattern to shift.  A tagged integer is
+     [8 * B.size_int - 1] bits wide on the target, a boxed nativeint
+     [8 * B.size_int]. *)
+  let wrap bits n =
+    if bits >= Sys.int_size then n
+    else let shift = Sys.int_size - bits in (n lsl shift) asr shift in
+  let unsigned bits n =
+    if bits >= Sys.int_size then n else n land ((1 lsl bits) - 1) in
+  let wrap_natint bits n =
+    if bits >= Sys.word_size then n
+    else
+      let shift = Sys.word_size - bits in
+      Nativeint.shift_right (Nativeint.shift_left n shift) shift in
+  let unsigned_natint bits n =
+    if bits >= Sys.word_size then n
+    else
+      Nativeint.logand n
+        (Nativeint.sub (Nativeint.shift_left 1n bits) 1n) in
+  let int_bits = 8 * B.size_int - 1 in
+  let natint_bits = 8 * B.size_int in
+  let make_const_int n = make_const_int (wrap int_bits n) in
+  let make_const_natint n = make_const_natint (wrap_natint natint_bits n) in
+  (* Inputs need the same treatment as results: a literal that does not
+     fit the target's int is stored here as the host integer it was
+     written as, so 0x6FFFFFFF would fold as positive on a 64-bit host
+     even though it is negative in a 31-bit int. *)
+  let approxs =
+    List.map (function
+      | Value_const (Uconst_int n) -> Value_const (Uconst_int (wrap int_bits n))
+      | approx -> approx) approxs in
   match approxs with
   (* int (or enumerated type) *)
   | [ Value_const(Uconst_int n1) ] ->
@@ -302,7 +338,7 @@ let simplif_arith_prim_pure ~backend fpc p (args, approxs) dbg =
       | Plslint when 0 <= n2 && n2 < 8 * B.size_int ->
           make_const_int (n1 lsl n2)
       | Plsrint when 0 <= n2 && n2 < 8 * B.size_int ->
-          make_const_int (n1 lsr n2)
+          make_const_int (unsigned int_bits n1 lsr n2)
       | Pasrint when 0 <= n2 && n2 < 8 * B.size_int ->
           make_const_int (n1 asr n2)
       | Pintcomp c -> make_integer_comparison c n1 n2
@@ -360,7 +396,9 @@ let simplif_arith_prim_pure ~backend fpc p (args, approxs) dbg =
       | Plslbint Pnativeint when 0 <= n2 && n2 < 8 * B.size_int ->
           make_const_natint (Nativeint.shift_left n1 n2)
       | Plsrbint Pnativeint when 0 <= n2 && n2 < 8 * B.size_int ->
-          make_const_natint (Nativeint.shift_right_logical n1 n2)
+          make_const_natint
+            (Nativeint.shift_right_logical
+               (unsigned_natint natint_bits n1) n2)
       | Pasrbint Pnativeint when 0 <= n2 && n2 < 8 * B.size_int ->
           make_const_natint (Nativeint.shift_right n1 n2)
       | _ -> default
