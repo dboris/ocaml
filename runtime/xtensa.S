@@ -366,11 +366,17 @@ caml_raise_exn:
 caml_raise_exception:
     entry   sp, 16
 /* Keep the domain state and the bucket in registers that survive the
-   spill: a2 is the syscall selector and a3 is clobbered below. */
+   spill; a2 cannot hold either of them yet, being the syscall selector. */
     mov     a15, a2
     mov     a14, a3
     movi    a2, 0
     syscall /* System call 0: flush all register windows to the stack. */
+/* The bucket now goes in a2 and stays there.  It must not be in a4-a15
+   across the call4 below: that rotates the window by four, so the callee's
+   a2-a13 ARE the caller's a6-a15, and a14 in particular comes back
+   destroyed -- which lost the exception on every raise from C that had
+   backtraces enabled.  a0-a3 are outside the callee's window. */
+    mov     a2, a14
 /* Store domain state pointer */
     wfr     f2, a15
 /* Reload trap ptr and alloc ptr */
@@ -379,7 +385,7 @@ caml_raise_exception:
 /* Test if backtrace is active */
     l32i    a4, a15, Caml_state(backtrace_active)
     beqz    a4, 1f
-    mov     a6, a14 /* Arg1: exception bucket */
+    mov     a6, a2 /* Arg1: exception bucket */
     l32i    a7, a15, Caml_state(last_return_address)
     l32i    a8, a15, Caml_state(bottom_of_stack)
     rfr     a9, f0
@@ -392,8 +398,7 @@ caml_raise_exception:
    adjustments drag around sits at sp - 16 exactly as after any OCaml
    stack move, so the movsp below relocates it like any other. */
     l32i    sp, a15, Caml_state(bottom_of_stack)
-/* The handler takes the bucket in OCaml's exception register */
-    mov     a2, a14
+/* The bucket is already in a2, which is where the handler expects it. */
 /* From here on this is the tail of caml_raise_exn */
     rfr     a15, f0
     lsi     f0, a15, 0 /* Pop previous trap handler */
