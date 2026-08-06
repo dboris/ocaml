@@ -41,8 +41,9 @@ let dummy_node =
    In addition:
    - code_stores contains the latest store nodes emitted so far
    - code_loads contains all load nodes emitted since the last store
-   - code_checkbounds contains the latest checkbound node not matched
-     by a subsequent load or store. *)
+   - code_checkbounds contains the checkbound nodes emitted since the last
+     store; a single bounds check can guard several accesses, so they stay
+     until a store (which is itself ordered after them) supersedes them. *)
 
 let code_results = (Hashtbl.create 31 : (location, code_dag_node) Hashtbl.t)
 let code_uses = (Hashtbl.create 31 : (location, code_dag_node) Hashtbl.t)
@@ -276,8 +277,13 @@ method private add_instruction ready_queue instr =
   if self#instr_is_load instr then begin
     List.iter (add_edge_after node) !code_stores;
     code_loads := node :: !code_loads;
-    List.iter (add_edge_after node) !code_checkbounds;
-    code_checkbounds := []
+    (* The checkbound is remembered rather than consumed: one bounds check
+       can guard several loads -- an unaligned 16/32/64-bit access is a
+       series of byte loads -- and letting the later ones float above the
+       check reads outside the object.  On a target where an out-of-bounds
+       address can be unmapped (an ESP32 reading through a null bigarray
+       data pointer) that faults instead of returning garbage. *)
+    List.iter (add_edge_after node) !code_checkbounds
   end
   (* If this is a store, add edges from the most recent store,
      as well as all loads viewed since then, and also the most recent
@@ -292,7 +298,9 @@ method private add_instruction ready_queue instr =
     code_checkbounds := []
   end
   else if self#instr_is_checkbound instr then begin
-    code_checkbounds := [node]
+    (* Accumulate: with two checks in a row, a load must stay after both,
+       or the check that guards it could be scheduled after the load. *)
+    code_checkbounds := node :: !code_checkbounds
   end;
   (* Remember the registers used and produced by this instruction *)
   for i = 0 to Array.length instr.res - 1 do
