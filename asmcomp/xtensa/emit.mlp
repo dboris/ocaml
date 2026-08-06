@@ -465,12 +465,14 @@ let emit_instruction i =
         emit_comparison cmp i.arg.(0) i.arg.(1) i.res.(0)
     | Lop(Iintop_imm(Icomp cmp, n)) -> 
         emit_comparison_imm cmp i.arg.(0) n i.res.(0)
+    (* The check fails when the bound is less than *or equal to* the
+       index: an index equal to the length is out of bounds too. *)
     | Lop(Iintop (Icheckbound)) ->
         let lbl = bound_error_label i.dbg in
-        emit_if_then (Iunsigned Clt) i.arg.(0) (Register i.arg.(1)) lbl
+        emit_if_then (Iunsigned Cle) i.arg.(0) (Register i.arg.(1)) lbl
     | Lop(Iintop_imm(Icheckbound, n)) ->
         let lbl = bound_error_label i.dbg in
-        emit_if_then (Iunsigned Clt) i.arg.(0) (Immediate n) lbl
+        emit_if_then (Iunsigned Cle) i.arg.(0) (Immediate n) lbl
     | Lop(Iintop op) ->
         let instr, sar = name_for_int_operation op in
         (match sar with 
