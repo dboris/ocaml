@@ -40,6 +40,7 @@ FLEXLINK_DLL_LDFLAGS=$(if $(OC_DLL_LDFLAGS), -link "$(OC_DLL_LDFLAGS)")
 config.ml: config.mlp $(ROOTDIR)/Makefile.config Makefile
 	sed $(call SUBST,AFL_INSTRUMENT) \
 	    $(call SUBST,ARCH) \
+	    $(call SUBST,ARCH64) \
 	    $(call SUBST_STRING,ARCMD) \
 	    $(call SUBST_STRING,ASM) \
 	    $(call SUBST,ASM_CFI_SUPPORTED) \

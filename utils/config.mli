@@ -159,6 +159,14 @@ val model: string
 val system: string
 (** Name of operating system for the native-code compiler *)
 
+val word_size: int
+(** Size in bits of a word on the TARGET, 32 or 64.  Not [Sys.word_size],
+    which is the word size of the machine the compiler itself runs on: the
+    two differ when cross-compiling. *)
+
+val int_size: int
+(** Number of bits of an [int] on the target, i.e. [word_size - 1] *)
+
 val asm: string
 (** The assembler (and flags) to use for assembling
     ocamlopt-generated code. *)

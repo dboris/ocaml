@@ -127,6 +127,14 @@ let architecture = "%%ARCH%%"
 let model = "%%MODEL%%"
 let system = "%%SYSTEM%%"
 
+(* The word size of the TARGET, which is not the host's when
+   cross-compiling.  configure measures the size of a pointer with the
+   target's own C compiler, the same check that decides ARCH_SIXTYFOUR in
+   the runtime, so the compiler and the runtime cannot disagree here. *)
+let target_arch64 = %%ARCH64%%
+let word_size = if target_arch64 then 64 else 32
+let int_size = word_size - 1
+
 let asm = "%%ASM%%"
 let asm_cfi_supported = %%ASM_CFI_SUPPORTED%%
 let with_frame_pointers = %%WITH_FRAME_POINTERS%%
@@ -180,8 +188,8 @@ let configuration_variables =
   p "native_pack_linker" native_pack_linker;
   p "architecture" architecture;
   p "model" model;
-  p_int "int_size" Sys.int_size;
-  p_int "word_size" Sys.word_size;
+  p_int "int_size" int_size;
+  p_int "word_size" word_size;
   p "system" system;
   p "asm" asm;
   p_bool "asm_cfi_supported" asm_cfi_supported;
